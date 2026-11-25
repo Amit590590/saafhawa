@@ -1,0 +1,23 @@
+{
+  "name": "saafhawa",
+  "version": "1.0.0",
+  "description": "SaafHawa (साफ़ हवा) – a GenAI urban air quality assistant for families navigating winter smog. Built for Hack2Skill PromptWars Virtual Challenge 6.",
+  "main": "server.js",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test --test-reporter=spec \"test/**/*.test.js\"",
+    "test:coverage": "node --test --experimental-test-coverage \"test/**/*.test.js\""
+  },
+  "dependencies": {
+    "compression": "^1.7.5",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0"
+  }
+}

@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: saafhawa
+    runtime: node
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false

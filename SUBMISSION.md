@@ -30,7 +30,7 @@ Small choices like when to open a window, which hour to walk, or what fuel to co
 
 Thank you @Google for Developers and @Hack2skill for the push to build in public!
 
-🔗 Live demo: <add link>  |  💻 Code: <add GitHub link>
+🔗 Live demo: https://saafhawa.vercel.app  |  💻 Code: https://github.com/Amit590590/saafhawa
 
 #BuildwithAI #PromptWarsVirtual #UrbanAirQuality #GoogleGemini #CleanAir #Bhopal #AIforGood
 

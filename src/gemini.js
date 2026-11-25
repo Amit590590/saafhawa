@@ -18,7 +18,7 @@ class GeminiError extends Error {
 function createGeminiClient({ apiKey, model = 'gemini-3.5-flash', fetchImpl = fetch, timeoutMs = 25000 } = {}) {
   const available = typeof apiKey === 'string' && apiKey.trim().length > 0;
 
-  async function generateJson({ system, prompt, schema, temperature = 0.4, maxOutputTokens = 2048 }) {
+  async function generateJson({ system, prompt, schema, temperature = 0.4, maxOutputTokens = 8192 }) {
     if (!available) throw new GeminiError('Gemini API key not configured');
     const body = {
       systemInstruction: { parts: [{ text: system }] },
@@ -30,6 +30,8 @@ function createGeminiClient({ apiKey, model = 'gemini-3.5-flash', fetchImpl = fe
         responseSchema: schema,
         // Structured, grounded task: skip extended thinking on 2.5 Flash (when that model is used) for lower latency/cost.
         ...(model.startsWith('gemini-2.5-flash') ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+        // Gemini 3.x: keep reasoning light so the JSON is not cut off by thinking tokens.
+        ...(/^gemini-3/.test(model) ? { thinkingConfig: { thinkingLevel: 'low' } } : {}),
       },
       safetySettings: [
         { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },

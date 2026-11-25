@@ -143,7 +143,7 @@ function createApp(opts = {}) {
           prompt: buildChatPrompt(report, profile.value, chat.value.history, chat.value.message, lang),
           schema: CHAT_SCHEMA,
           temperature: 0.5,
-          maxOutputTokens: 800,
+          maxOutputTokens: 4096,
         });
         const reply = sanitizeChat(raw);
         if (reply) return res.json({ source: 'gemini', ...reply });

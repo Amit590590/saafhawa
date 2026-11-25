@@ -1,6 +1,6 @@
 // SaafHawa frontend – vanilla JS, no framework.
 // Security: all dynamic text (including Gemini output) is rendered via textContent / DOM APIs; never innerHTML.
-import { STRINGS } from './i18n.js';
+import { STRINGS } from './i18n.js?v=3';
 
 const BANDS = {
   good: { en: 'Good', hi: 'अच्छा', color: '#00e400', text: '#000' },

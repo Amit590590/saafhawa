@@ -15,7 +15,7 @@ class GeminiError extends Error {
   }
 }
 
-function createGeminiClient({ apiKey, model = 'gemini-2.5-flash', fetchImpl = fetch, timeoutMs = 25000 } = {}) {
+function createGeminiClient({ apiKey, model = 'gemini-3.5-flash', fetchImpl = fetch, timeoutMs = 25000 } = {}) {
   const available = typeof apiKey === 'string' && apiKey.trim().length > 0;
 
   async function generateJson({ system, prompt, schema, temperature = 0.4, maxOutputTokens = 2048 }) {
@@ -28,7 +28,7 @@ function createGeminiClient({ apiKey, model = 'gemini-2.5-flash', fetchImpl = fe
         maxOutputTokens,
         responseMimeType: 'application/json',
         responseSchema: schema,
-        // Structured, grounded task: skip extended thinking on 2.5 Flash for lower latency/cost.
+        // Structured, grounded task: skip extended thinking on 2.5 Flash (when that model is used) for lower latency/cost.
         ...(model.startsWith('gemini-2.5-flash') ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
       },
       safetySettings: [
@@ -47,7 +47,11 @@ function createGeminiClient({ apiKey, model = 'gemini-2.5-flash', fetchImpl = fe
     } catch (err) {
       throw new GeminiError(`Gemini request failed: ${err.name || 'error'}`);
     }
-    if (!res.ok) throw new GeminiError(`Gemini responded ${res.status}`);
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.text()).slice(0, 300); } catch { /* ignore */ }
+      throw new GeminiError(`Gemini responded ${res.status}${detail ? `: ${detail}` : ''}`);
+    }
     const data = await res.json();
     const parts = data?.candidates?.[0]?.content?.parts;
     if (!Array.isArray(parts)) throw new GeminiError('Gemini returned no content');

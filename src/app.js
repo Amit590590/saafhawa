@@ -17,7 +17,7 @@ const { buildFallbackPlan, fallbackChat } = require('./fallback');
  * @param {object} opts
  * @param {Function} [opts.fetchImpl] fetch implementation used for all upstream calls
  * @param {string} [opts.apiKey] Gemini API key (defaults to env GEMINI_API_KEY)
- * @param {string} [opts.model] Gemini model (defaults to env GEMINI_MODEL or gemini-2.5-flash)
+ * @param {string} [opts.model] Gemini model (defaults to env GEMINI_MODEL or gemini-3.5-flash)
  * @param {{windowMs:number, api:number, ai:number}} [opts.limits] rate limits per IP
  * @param {Console} [opts.logger]
  */
@@ -29,7 +29,7 @@ function createApp(opts = {}) {
     opts.geminiClient ||
     createGeminiClient({
       apiKey: opts.apiKey ?? process.env.GEMINI_API_KEY,
-      model: opts.model || process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      model: opts.model || process.env.GEMINI_MODEL || 'gemini-3.5-flash',
       fetchImpl,
     });
   const limits = { windowMs: 10 * 60 * 1000, api: 120, ai: 20, ...(opts.limits || {}) };

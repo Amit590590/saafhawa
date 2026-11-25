@@ -38,7 +38,7 @@ The flow is lazy: the AQI card renders first, and Gemini is only called afterwar
 
 ## Gen AI usage (Google Gemini)
 
-- **Model:** `gemini-2.5-flash` by default (override with `GEMINI_MODEL`), called via the Generative Language REST API **from the server only**.
+- **Model:** `gemini-3.5-flash` by default (override with `GEMINI_MODEL`), called via the Generative Language REST API **from the server only**.
 - **Where:**
   1. `POST /api/plan` builds the personalised plan. The prompt holds the live AQI, the 3-hourly forecast, the best/worst windows, the household profile, and a block of **pre-computed impact facts** (exposure-shift %, commute emissions, reference filtration and emission factors), so the model's impact claims rest on the same numbers the UI shows.
   2. `POST /api/chat` answers follow-up questions, grounded on the same context plus the last 6 turns.

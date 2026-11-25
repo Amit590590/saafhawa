@@ -83,7 +83,7 @@ test('gemini client sends key in header, schema in config, and parses JSON', asy
   const body = JSON.parse(seen.init.body);
   assert.equal(body.generationConfig.responseMimeType, 'application/json');
   assert.deepEqual(body.generationConfig.responseSchema, { type: 'OBJECT' });
-  assert.match(seen.url, /gemini-2\.5-flash:generateContent$/);
+  assert.match(seen.url, /gemini-3\.5-flash:generateContent$/);
 });
 
 test('gemini client surfaces errors', async () => {

@@ -74,7 +74,7 @@ The app works without a key too: it serves the rule-based plan, labelled "Offlin
 
 - **Google Cloud Run:** `gcloud run deploy saafhawa --source . --region asia-south1 --allow-unauthenticated --set-env-vars GEMINI_API_KEY=…` (the Dockerfile listens on `$PORT`). For production, prefer `--set-secrets GEMINI_API_KEY=gemini-key:latest`.
 - **Render:** `render.yaml` included (set `GEMINI_API_KEY` in the dashboard).
-- **Vercel-style serverless:** `api/index.js` exports the Express app, and `vercel.json` routes all paths to it.
+- **Vercel-style serverless:** `api/index.js` exports the Express app, and `vercel.json` serves `public/` as static files and rewrites `/api/*` to it.
 
 ## Tests
 

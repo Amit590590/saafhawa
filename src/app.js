@@ -1,25 +1,36 @@
+// @ts-check
 'use strict';
 
 const path = require('node:path');
 const express = require('express');
-const helmet = require('helmet');
 const compression = require('compression');
-const { rateLimit } = require('express-rate-limit');
 
+const { DEFAULT_MODEL, RATE_LIMITS, JSON_BODY_LIMIT, STATIC_MAX_AGE, GEMINI, MESSAGES } = require('./config');
+const { sendError } = require('./errors');
+const { securityHeaders, createLimiter, noStore, apiNotFound, errorHandler } = require('./middleware');
 const { validateLocation, validateProfile, validateChat, validateLang } = require('./validate');
 const { createAirClient } = require('./openmeteo');
 const { createGeminiClient } = require('./gemini');
 const { SYSTEM_INSTRUCTION, PLAN_SCHEMA, CHAT_SCHEMA, buildPlanPrompt, buildChatPrompt, sanitizePlan, sanitizeChat } = require('./prompt');
 const { buildFallbackPlan, fallbackChat } = require('./fallback');
 
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+
+/**
+ * @typedef {object} AppOptions
+ * @property {import('./http').FetchLike} [fetchImpl] fetch implementation used for all upstream calls
+ * @property {string} [apiKey] Gemini API key (defaults to env GEMINI_API_KEY)
+ * @property {string} [model] Gemini model (defaults to env GEMINI_MODEL or DEFAULT_MODEL)
+ * @property {Partial<typeof RATE_LIMITS>} [limits] rate limits per IP
+ * @property {Pick<Console, 'warn' | 'error'>} [logger]
+ * @property {ReturnType<typeof createAirClient>} [airClient] injectable Open-Meteo client
+ * @property {import('./gemini').GeminiClient} [geminiClient] injectable Gemini client
+ */
+
 /**
  * Build the Express app. Dependencies are injectable so tests can mock Gemini/Open-Meteo.
- * @param {object} opts
- * @param {Function} [opts.fetchImpl] fetch implementation used for all upstream calls
- * @param {string} [opts.apiKey] Gemini API key (defaults to env GEMINI_API_KEY)
- * @param {string} [opts.model] Gemini model (defaults to env GEMINI_MODEL or gemini-3.5-flash)
- * @param {{windowMs:number, api:number, ai:number}} [opts.limits] rate limits per IP
- * @param {Console} [opts.logger]
+ * @param {AppOptions} [opts]
+ * @returns {import('express').Express}
  */
 function createApp(opts = {}) {
   const fetchImpl = opts.fetchImpl || fetch;
@@ -29,53 +40,29 @@ function createApp(opts = {}) {
     opts.geminiClient ||
     createGeminiClient({
       apiKey: opts.apiKey ?? process.env.GEMINI_API_KEY,
-      model: opts.model || process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+      model: opts.model || process.env.GEMINI_MODEL || DEFAULT_MODEL,
       fetchImpl,
     });
-  const limits = { windowMs: 10 * 60 * 1000, api: 120, ai: 20, ...(opts.limits || {}) };
+  const limits = { ...RATE_LIMITS, ...(opts.limits || {}) };
 
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', 1); // Cloud Run / Render sit behind one proxy hop
+  app.set('trust proxy', 1); // Vercel's edge sits one proxy hop in front of the function
 
-  app.use(
-    helmet({
-      contentSecurityPolicy: {
-        useDefaults: true,
-        directives: {
-          'default-src': ["'self'"],
-          'script-src': ["'self'"],
-          'style-src': ["'self'"],
-          'img-src': ["'self'", 'data:'],
-          'connect-src': ["'self'"],
-          'font-src': ["'self'"],
-          'object-src': ["'none'"],
-          'base-uri': ["'self'"],
-          'form-action': ["'self'"],
-          'frame-ancestors': ["'none'"],
-        },
-      },
-      crossOriginEmbedderPolicy: false,
-    }),
-  );
-  app.use((req, res, next) => {
-    res.setHeader('Permissions-Policy', 'geolocation=(self), camera=(), microphone=()');
-    next();
-  });
+  for (const middleware of securityHeaders()) app.use(middleware);
   app.use(compression());
 
-  const apiLimiter = rateLimit({ windowMs: limits.windowMs, limit: limits.api, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Too many requests, please slow down.' } });
-  const aiLimiter = rateLimit({ windowMs: limits.windowMs, limit: limits.ai, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'AI request limit reached, try again in a few minutes.' } });
+  const apiLimiter = createLimiter(limits.windowMs, limits.api, MESSAGES.tooManyRequests);
+  const aiLimiter = createLimiter(limits.windowMs, limits.ai, MESSAGES.aiLimit);
+  app.use('/api', apiLimiter, express.json({ limit: JSON_BODY_LIMIT }), noStore);
 
-  app.use('/api', apiLimiter, express.json({ limit: '8kb' }));
-  app.use('/api', (req, res, next) => {
-    res.setHeader('Cache-Control', 'no-store');
-    next();
-  });
-
-  // ---- helpers ----
-  const sendError = (res, status, message) => res.status(status).json({ error: message });
-
+  /**
+   * Validate a location and load its air report. On failure the error response is sent
+   * and null is returned, so route handlers can simply stop.
+   * @param {unknown} locationInput
+   * @param {import('express').Response} res
+   * @returns {Promise<object | null>}
+   */
   async function reportFor(locationInput, res) {
     const loc = validateLocation(locationInput);
     if (!loc.ok) {
@@ -85,9 +72,33 @@ function createApp(opts = {}) {
     try {
       return await air.getReport(loc.value);
     } catch (err) {
-      const status = err.status === 404 ? 404 : 502;
-      sendError(res, status, status === 404 ? 'City not found. Try a nearby larger city.' : 'Air quality data is temporarily unavailable.');
-      if (status !== 404) logger.warn('[air]', err.message);
+      if (err.status === 404) {
+        sendError(res, 404, MESSAGES.cityNotFound);
+      } else {
+        sendError(res, 502, MESSAGES.airUnavailable);
+        logger.warn('[air]', err.message);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Ask Gemini for structured JSON and sanitise it; returns null (and logs) when Gemini is
+   * unavailable, fails, or its output does not validate, so the caller can fall back.
+   * @template T
+   * @param {string} tag log tag
+   * @param {import('./gemini').GenerateOptions} request
+   * @param {(raw: any) => T | null} sanitize
+   * @returns {Promise<T | null>}
+   */
+  async function tryGemini(tag, request, sanitize) {
+    if (!gemini.available) return null;
+    try {
+      const result = sanitize(await gemini.generateJson(request));
+      if (!result) logger.warn(`[${tag}] Gemini output failed validation; using fallback`);
+      return result;
+    } catch (err) {
+      logger.warn(`[${tag}]`, err.message);
       return null;
     }
   }
@@ -98,7 +109,8 @@ function createApp(opts = {}) {
   });
 
   app.get('/api/air', async (req, res) => {
-    const report = await reportFor({ city: req.query.city, lat: req.query.lat, lon: req.query.lon, label: req.query.label }, res);
+    const { city, lat, lon, label } = req.query;
+    const report = await reportFor({ city, lat, lon, label }, res);
     if (report) res.json(report);
   });
 
@@ -109,21 +121,12 @@ function createApp(opts = {}) {
     const report = await reportFor(req.body?.location, res);
     if (!report) return undefined;
 
-    if (gemini.available) {
-      try {
-        const raw = await gemini.generateJson({
-          system: SYSTEM_INSTRUCTION,
-          prompt: buildPlanPrompt(report, profile.value, lang),
-          schema: PLAN_SCHEMA,
-          temperature: 0.4,
-        });
-        const plan = sanitizePlan(raw);
-        if (plan) return res.json({ source: 'gemini', model: gemini.model, lang, plan });
-        logger.warn('[plan] Gemini output failed validation; using fallback');
-      } catch (err) {
-        logger.warn('[plan]', err.message);
-      }
-    }
+    const plan = await tryGemini(
+      'plan',
+      { system: SYSTEM_INSTRUCTION, prompt: buildPlanPrompt(report, profile.value, lang), schema: PLAN_SCHEMA, ...GEMINI.plan },
+      sanitizePlan,
+    );
+    if (plan) return res.json({ source: 'gemini', model: gemini.model, lang, plan });
     return res.json({ source: 'fallback', lang, plan: buildFallbackPlan(report, profile.value, lang) });
   });
 
@@ -136,45 +139,34 @@ function createApp(opts = {}) {
     const report = await reportFor(req.body?.location, res);
     if (!report) return undefined;
 
-    if (gemini.available) {
-      try {
-        const raw = await gemini.generateJson({
-          system: SYSTEM_INSTRUCTION,
-          prompt: buildChatPrompt(report, profile.value, chat.value.history, chat.value.message, lang),
-          schema: CHAT_SCHEMA,
-          temperature: 0.5,
-          maxOutputTokens: 4096,
-        });
-        const reply = sanitizeChat(raw);
-        if (reply) return res.json({ source: 'gemini', ...reply });
-      } catch (err) {
-        logger.warn('[chat]', err.message);
-      }
-    }
+    const { history, message } = chat.value;
+    const reply = await tryGemini(
+      'chat',
+      {
+        system: SYSTEM_INSTRUCTION,
+        prompt: buildChatPrompt(report, profile.value, history, message, lang),
+        schema: CHAT_SCHEMA,
+        ...GEMINI.chat,
+      },
+      sanitizeChat,
+    );
+    if (reply) return res.json({ source: 'gemini', ...reply });
     return res.json({ source: 'fallback', ...fallbackChat(report, lang) });
   });
 
-  app.use('/api', (req, res) => sendError(res, 404, 'Not found'));
+  app.use('/api', apiNotFound);
 
-  // ---- static frontend ----
+  // ---- static frontend (local server; on Vercel `public/` is served by the CDN) ----
   app.use(
-    express.static(path.join(__dirname, '..', 'public'), {
-      maxAge: '1h',
+    express.static(PUBLIC_DIR, {
+      maxAge: STATIC_MAX_AGE,
       setHeaders(res, filePath) {
         if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
       },
     }),
   );
 
-  // ---- error handler: never leak stack traces ----
-  // eslint-disable-next-line no-unused-vars
-  app.use((err, req, res, next) => {
-    if (err.type === 'entity.parse.failed') return sendError(res, 400, 'Invalid JSON body');
-    if (err.type === 'entity.too.large') return sendError(res, 413, 'Request body too large');
-    logger.error('[error]', err.message);
-    return sendError(res, 500, 'Internal server error');
-  });
-
+  app.use(errorHandler(logger));
   return app;
 }
 

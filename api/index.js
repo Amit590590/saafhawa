@@ -1,6 +1,10 @@
+// @ts-check
 'use strict';
 
-// Serverless entry (Vercel-style): export the Express app as the request handler.
+/**
+ * Vercel serverless entry: the Express app is the request handler for /api/*.
+ * Static files in public/ are served by Vercel's CDN (see vercel.json).
+ */
 const { createApp } = require('../src/app');
 
 module.exports = createApp();

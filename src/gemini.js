@@ -1,3 +1,4 @@
+// @ts-check
 'use strict';
 
 /**
@@ -6,66 +7,130 @@
  * Uses structured output: responseMimeType=application/json + responseSchema.
  */
 
-const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const { DEFAULT_MODEL, GEMINI } = require('./config');
+const { GeminiError } = require('./errors');
+const { fetchWithTimeout } = require('./http');
 
-class GeminiError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'GeminiError';
+const API_BASE = GEMINI.apiBase;
+
+const SAFETY_SETTINGS = Object.freeze([
+  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+]);
+
+/**
+ * @typedef {object} GenerateOptions
+ * @property {string} system system instruction
+ * @property {string} prompt user prompt
+ * @property {object} schema Gemini responseSchema
+ * @property {number} [temperature]
+ * @property {number} [maxOutputTokens]
+ */
+
+/**
+ * @typedef {object} GeminiClient
+ * @property {boolean} available true when an API key is configured
+ * @property {string} model model id used for requests
+ * @property {(opts: GenerateOptions) => Promise<any>} generateJson
+ */
+
+/**
+ * Model-specific thinking settings: structured, grounded tasks need little reasoning,
+ * and on Gemini 3.x light thinking keeps the JSON from being truncated.
+ * @param {string} model
+ * @returns {object} partial generationConfig
+ */
+function thinkingConfigFor(model) {
+  if (model.startsWith('gemini-2.5-flash')) return { thinkingConfig: { thinkingBudget: 0 } };
+  if (/^gemini-3/.test(model)) return { thinkingConfig: { thinkingLevel: 'low' } };
+  return {};
+}
+
+/**
+ * Build the generateContent request body.
+ * @param {string} model
+ * @param {GenerateOptions} opts
+ * @returns {object}
+ */
+function buildRequestBody(model, { system, prompt, schema, temperature, maxOutputTokens }) {
+  return {
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: temperature ?? GEMINI.defaultTemperature,
+      maxOutputTokens: maxOutputTokens ?? GEMINI.defaultMaxOutputTokens,
+      responseMimeType: 'application/json',
+      responseSchema: schema,
+      ...thinkingConfigFor(model),
+    },
+    safetySettings: SAFETY_SETTINGS,
+  };
+}
+
+/**
+ * Extract and parse the JSON text from a generateContent response payload.
+ * @param {any} data parsed response body
+ * @returns {any} the model's JSON output
+ * @throws {GeminiError} when there is no content or it is not valid JSON
+ */
+function parseCandidateJson(data) {
+  const parts = data?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) throw new GeminiError('Gemini returned no content');
+  const text = parts.map((p) => (typeof p.text === 'string' ? p.text : '')).join('');
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new GeminiError('Gemini returned invalid JSON');
   }
 }
 
-function createGeminiClient({ apiKey, model = 'gemini-3.5-flash', fetchImpl = fetch, timeoutMs = 25000 } = {}) {
+/**
+ * Read a short error detail from a failed response without ever throwing.
+ * @param {Response} res
+ * @returns {Promise<string>}
+ */
+async function readErrorDetail(res) {
+  try {
+    return (await res.text()).slice(0, GEMINI.errorDetailChars);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Create a Gemini client.
+ * @param {object} [opts]
+ * @param {string} [opts.apiKey] Gemini API key; the client is unavailable without one
+ * @param {string} [opts.model]
+ * @param {import('./http').FetchLike} [opts.fetchImpl]
+ * @param {number} [opts.timeoutMs]
+ * @returns {GeminiClient}
+ */
+function createGeminiClient({ apiKey, model = DEFAULT_MODEL, fetchImpl = fetch, timeoutMs = GEMINI.timeoutMs } = {}) {
   const available = typeof apiKey === 'string' && apiKey.trim().length > 0;
 
-  async function generateJson({ system, prompt, schema, temperature = 0.4, maxOutputTokens = 8192 }) {
+  /** @type {GeminiClient['generateJson']} */
+  async function generateJson(opts) {
     if (!available) throw new GeminiError('Gemini API key not configured');
-    const body = {
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature,
-        maxOutputTokens,
-        responseMimeType: 'application/json',
-        responseSchema: schema,
-        // Structured, grounded task: skip extended thinking on 2.5 Flash (when that model is used) for lower latency/cost.
-        ...(model.startsWith('gemini-2.5-flash') ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-        // Gemini 3.x: keep reasoning light so the JSON is not cut off by thinking tokens.
-        ...(/^gemini-3/.test(model) ? { thinkingConfig: { thinkingLevel: 'low' } } : {}),
-      },
-      safetySettings: [
-        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-      ],
-    };
-    let res;
-    try {
-      res = await fetchImpl(`${API_BASE}/${encodeURIComponent(model)}:generateContent`, {
+    const res = await fetchWithTimeout(
+      fetchImpl,
+      `${API_BASE}/${encodeURIComponent(model)}:generateContent`,
+      {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-    } catch (err) {
-      throw new GeminiError(`Gemini request failed: ${err.name || 'error'}`);
-    }
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': /** @type {string} */ (apiKey) },
+        body: JSON.stringify(buildRequestBody(model, opts)),
+      },
+      timeoutMs,
+      (msg) => new GeminiError(`Gemini ${msg}`),
+    );
     if (!res.ok) {
-      let detail = '';
-      try { detail = (await res.text()).slice(0, 300); } catch { /* ignore */ }
+      const detail = await readErrorDetail(res);
       throw new GeminiError(`Gemini responded ${res.status}${detail ? `: ${detail}` : ''}`);
     }
-    const data = await res.json();
-    const parts = data?.candidates?.[0]?.content?.parts;
-    if (!Array.isArray(parts)) throw new GeminiError('Gemini returned no content');
-    const text = parts.map((p) => (typeof p.text === 'string' ? p.text : '')).join('');
-    try {
-      return JSON.parse(text);
-    } catch {
-      throw new GeminiError('Gemini returned invalid JSON');
-    }
+    return parseCandidateJson(await res.json());
   }
 
   return { available, model, generateJson };
 }
 
-module.exports = { createGeminiClient, GeminiError, API_BASE };
+module.exports = { createGeminiClient, GeminiError, API_BASE, buildRequestBody, parseCandidateJson, thinkingConfigFor };

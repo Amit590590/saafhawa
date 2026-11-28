@@ -1,3 +1,4 @@
+// @ts-check
 'use strict';
 
 /**
@@ -26,8 +27,27 @@ const REDUCTION = Object.freeze({
 });
 
 const WORKDAYS_PER_YEAR = 220;
+/** A commute is counted both ways. */
+const TRIPS_PER_DAY = 2;
+/** Distances (km) up to which walking / cycling are realistic alternatives. */
+const WALKABLE_KM = 3;
+const CYCLABLE_KM = 8;
+const ZERO_EMISSION_MODES = Object.freeze(['wfh', 'walk', 'cycle']);
 
-/** % lower PM2.5 dose by shifting outdoor time from the worst to the best window. */
+/**
+ * Round to two decimals.
+ * @param {number} n
+ * @returns {number}
+ */
+const round2 = (n) => Math.round(n * 100) / 100;
+
+/**
+ * % lower PM2.5 dose by shifting outdoor time from the worst to the best window.
+ * Uses PM2.5 averages when available, otherwise AQI averages.
+ * @param {{avgPm25?: number|null, avgAqi: number} | null | undefined} best
+ * @param {{avgPm25?: number|null, avgAqi: number} | null | undefined} worst
+ * @returns {number | null} percentage (0-100), or null without both windows
+ */
 function exposureShiftReduction(best, worst) {
   if (!best || !worst) return null;
   const b = best.avgPm25 ?? best.avgAqi;
@@ -36,12 +56,27 @@ function exposureShiftReduction(best, worst) {
   return Math.round((1 - b / w) * 100);
 }
 
-/** Daily/annual CO2e for a round-trip commute and the saving if switching to `toMode`. */
+/**
+ * Emission factor for a mode (0 for unknown modes).
+ * @param {string} mode
+ * @returns {number}
+ */
+function emissionFactor(mode) {
+  return EMISSION_FACTORS[/** @type {keyof typeof EMISSION_FACTORS} */ (mode)] ?? 0;
+}
+
+/**
+ * Daily/annual CO2e for a round-trip commute and the saving if switching to `toMode`.
+ * @param {string} mode current commute mode
+ * @param {number} km one-way distance
+ * @param {string} [toMode='metro'] alternative mode
+ * @returns {{dailyKg: number, annualKg: number, savedDailyKg: number, savedAnnualKg: number, toMode: string}}
+ */
 function commuteImpact(mode, km, toMode = 'metro') {
-  const f = EMISSION_FACTORS[mode] ?? 0;
-  const t = EMISSION_FACTORS[toMode] ?? 0;
-  const dailyKg = Math.round(f * km * 2 * 100) / 100;
-  const savedDailyKg = Math.max(0, Math.round((f - t) * km * 2 * 100) / 100);
+  const f = emissionFactor(mode);
+  const t = emissionFactor(toMode);
+  const dailyKg = round2(f * km * TRIPS_PER_DAY);
+  const savedDailyKg = Math.max(0, round2((f - t) * km * TRIPS_PER_DAY));
   return {
     dailyKg,
     annualKg: Math.round(dailyKg * WORKDAYS_PER_YEAR),
@@ -51,15 +86,25 @@ function commuteImpact(mode, km, toMode = 'metro') {
   };
 }
 
-/** Cleanest realistic alternative for a given commute mode. */
+/**
+ * Cleanest realistic alternative for a given commute mode.
+ * @param {string} mode
+ * @param {number} km one-way distance
+ * @returns {string}
+ */
 function greenerMode(mode, km) {
-  if (['wfh', 'walk', 'cycle'].includes(mode)) return mode;
-  if (km <= 3) return 'walk';
-  if (km <= 8) return 'cycle';
+  if (ZERO_EMISSION_MODES.includes(mode)) return mode;
+  if (km <= WALKABLE_KM) return 'walk';
+  if (km <= CYCLABLE_KM) return 'cycle';
   return 'metro';
 }
 
-/** Facts block injected into prompts so the model reasons from the same numbers the UI shows. */
+/**
+ * Facts block injected into prompts so the model reasons from the same numbers the UI shows.
+ * @param {{best: any, worst: any}} report
+ * @param {{commuteMode: string, commuteKm: number}} profile
+ * @returns {{exposureShiftPct: number|null, commute: ReturnType<typeof commuteImpact>, greenerMode: string, reduction: typeof REDUCTION, emissionFactors: typeof EMISSION_FACTORS}}
+ */
 function impactFacts(report, profile) {
   const shift = exposureShiftReduction(report.best, report.worst);
   const alt = greenerMode(profile.commuteMode, profile.commuteKm);

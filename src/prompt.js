@@ -1,3 +1,4 @@
+// @ts-check
 'use strict';
 
 const { impactFacts } = require('./impact');
@@ -67,8 +68,51 @@ const CHAT_SCHEMA = {
   propertyOrdering: ['answer', 'followUps'],
 };
 
-const LANG_NAME = { en: 'English', hi: 'Hindi (Devanagari script, simple everyday words)' };
+const LANG_NAME = Object.freeze({ en: 'English', hi: 'Hindi (Devanagari script, simple everyday words)' });
 
+/** Length and count caps applied to model output (defence in depth). */
+const OUTPUT_LIMITS = Object.freeze({
+  text: 400,
+  time: 20,
+  summary: 600,
+  healthAlert: 300,
+  maxHealthAlerts: 4,
+  maxItems: 8,
+  answer: 1500,
+  followUp: 120,
+  maxFollowUps: 3,
+});
+
+/** Only every Nth forecast hour is put in prompts to keep them small. */
+const PROMPT_FORECAST_STEP = 3;
+
+/** Maximum words for a chat answer. */
+const CHAT_MAX_WORDS = 120;
+
+/**
+ * Human-readable language instruction for a language code.
+ * @param {string} lang
+ * @returns {string}
+ */
+function languageName(lang) {
+  return LANG_NAME[/** @type {'en' | 'hi'} */ (lang)] || LANG_NAME.en;
+}
+
+/**
+ * Wrap content in a named, clearly delimited DATA block.
+ * @param {string} name
+ * @param {string} content
+ * @returns {string[]}
+ */
+function block(name, content) {
+  return [`<${name}>`, content, `</${name}>`];
+}
+
+/**
+ * Render the household profile as plain lines for the prompt.
+ * @param {object} p validated profile (see validateProfile)
+ * @returns {string}
+ */
 function describeProfile(p) {
   const parts = [
     `Household: ${p.adults} adult(s), ${p.children} child(ren), ${p.elderly} elderly`,
@@ -82,31 +126,51 @@ function describeProfile(p) {
   return parts.join('\n');
 }
 
+/**
+ * Render a best/worst window line, or '' when there is no window.
+ * @param {string} kind 'Best' | 'Worst'
+ * @param {{label: string, tomorrow?: boolean, avgAqi: number} | null} w
+ * @returns {string}
+ */
+function describeWindow(kind, w) {
+  if (!w) return '';
+  return `${kind} 2h window (next 24h): ${w.label}${w.tomorrow ? ' tomorrow' : ''} (avg AQI ${w.avgAqi})`;
+}
+
+/**
+ * Render the live air report as plain lines for the prompt.
+ * @param {object} report air report from the Open-Meteo client
+ * @returns {string}
+ */
 function describeAir(report) {
   const c = report.current;
   const placeName = [report.place.name, report.place.admin1, report.place.country].filter(Boolean).join(', ');
   const hours = report.forecast
-    .filter((_, i) => i % 3 === 0) // every 3rd hour keeps the prompt small
+    .filter((_, i) => i % PROMPT_FORECAST_STEP === 0)
     .map((h) => `${h.time.slice(11, 16)}=${h.usAqi}`)
     .join(' ');
   return [
     `Location: ${placeName} (timezone ${report.timezone})`,
     `Now (${c.time}): US AQI ${c.usAqi} (${c.band ? c.band.label : 'unknown'}), PM2.5 ${c.pm25} µg/m³, PM10 ${c.pm10} µg/m³`,
     c.naqi ? `India NAQI (PM2.5-based, approx.): ${c.naqi.index} (${c.naqi.label})` : '',
-    report.best ? `Best 2h window (next 24h): ${report.best.label}${report.best.tomorrow ? ' tomorrow' : ''} (avg AQI ${report.best.avgAqi})` : '',
-    report.worst ? `Worst 2h window (next 24h): ${report.worst.label}${report.worst.tomorrow ? ' tomorrow' : ''} (avg AQI ${report.worst.avgAqi})` : '',
+    describeWindow('Best', report.best),
+    describeWindow('Worst', report.worst),
     `Next 24h US AQI (3-hourly): ${hours}`,
   ]
     .filter(Boolean)
     .join('\n');
 }
 
+/**
+ * Render the pre-computed impact facts the model must reason from.
+ * @param {object} report
+ * @param {object} profile
+ * @returns {string}
+ */
 function describeFacts(report, profile) {
   const f = impactFacts(report, profile);
   return [
-    f.exposureShiftPct !== null
-      ? `Shifting outdoor time from worst to best window lowers PM2.5 dose by ~${f.exposureShiftPct}%.`
-      : '',
+    f.exposureShiftPct !== null ? `Shifting outdoor time from worst to best window lowers PM2.5 dose by ~${f.exposureShiftPct}%.` : '',
     `Current commute ~${f.commute.dailyKg} kg CO2e/day (~${f.commute.annualKg} kg/yr). Switching to ${f.greenerMode} saves ~${f.commute.savedDailyKg} kg/day (~${f.commute.savedAnnualKg} kg/yr).`,
     'Reference reductions (approx.): well-fitted N95 ~90% of PM2.5; cloth/surgical mask ~10-50%; room-sized HEPA purifier with doors shut ~50-80% lower indoor PM2.5; keeping windows shut in peak hours ~20-30%.',
     'Reference emission factors kg CO2e/passenger-km (approx.): car 0.17, two-wheeler 0.05, auto 0.07, bus 0.03, metro 0.02, cycle/walk 0.',
@@ -116,87 +180,139 @@ function describeFacts(report, profile) {
     .join('\n');
 }
 
+/**
+ * The grounding blocks shared by every prompt.
+ * @param {object} report
+ * @param {object} profile
+ * @returns {string[]}
+ */
+function contextBlocks(report, profile) {
+  return [
+    ...block('AIR_DATA', describeAir(report)),
+    ...block('PROFILE', describeProfile(profile)),
+    ...block('IMPACT_FACTS', describeFacts(report, profile)),
+  ];
+}
+
+/**
+ * Prompt for the one-day clean-air plan.
+ * @param {object} report air report
+ * @param {object} profile validated profile
+ * @param {string} [lang='en']
+ * @returns {string}
+ */
 function buildPlanPrompt(report, profile, lang = 'en') {
   return [
-    `Write the whole response in ${LANG_NAME[lang] || LANG_NAME.en}.`,
+    `Write the whole response in ${languageName(lang)}.`,
     'Create a personalised one-day clean-air plan with: a 1-2 sentence summary; 5-7 routine items with clock times (HH:MM) tied to the forecast;',
     '4-6 indoor air quality hacks; 3-5 sustainable low-emission alternatives (commute, cooking, waste burning, energy); and 0-3 health alerts for vulnerable members.',
-    '<AIR_DATA>',
-    describeAir(report),
-    '</AIR_DATA>',
-    '<PROFILE>',
-    describeProfile(profile),
-    '</PROFILE>',
-    '<IMPACT_FACTS>',
-    describeFacts(report, profile),
-    '</IMPACT_FACTS>',
+    ...contextBlocks(report, profile),
   ].join('\n');
 }
 
+/**
+ * Prompt for a grounded follow-up chat answer. User text is fenced as data.
+ * @param {object} report air report
+ * @param {object} profile validated profile
+ * @param {{role: string, text: string}[]} history prior turns (already validated)
+ * @param {string} message the user's question (already validated)
+ * @param {string} [lang='en']
+ * @returns {string}
+ */
 function buildChatPrompt(report, profile, history, message, lang = 'en') {
   const hist = history.map((t) => `${t.role === 'user' ? 'User' : 'SaafHawa'}: ${t.text}`).join('\n');
   return [
-    `Answer in ${LANG_NAME[lang] || LANG_NAME.en}, in at most 120 words, grounded in the data below. Include an approximate impact estimate when you recommend an action.`,
+    `Answer in ${languageName(lang)}, in at most ${CHAT_MAX_WORDS} words, grounded in the data below. Include an approximate impact estimate when you recommend an action.`,
     'Suggest 2-3 short follow-up questions the user might ask next. If the question is unrelated to air quality, health, or sustainable living, politely steer back.',
-    '<AIR_DATA>',
-    describeAir(report),
-    '</AIR_DATA>',
-    '<PROFILE>',
-    describeProfile(profile),
-    '</PROFILE>',
-    '<IMPACT_FACTS>',
-    describeFacts(report, profile),
-    '</IMPACT_FACTS>',
-    '<HISTORY>',
-    hist || '(none)',
-    '</HISTORY>',
-    '<USER_QUESTION>',
-    message,
-    '</USER_QUESTION>',
+    ...contextBlocks(report, profile),
+    ...block('HISTORY', hist || '(none)'),
+    ...block('USER_QUESTION', message),
   ].join('\n');
 }
 
 // ---- Output sanitisation (defence in depth: the client also renders with textContent only) ----
 
-function str(v, max = 400) {
+// Control characters except tab and newline.
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS_RE = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
+
+/**
+ * Coerce to a trimmed string without control characters, capped at `max` chars.
+ * @param {unknown} v
+ * @param {number} [max]
+ * @returns {string}
+ */
+function str(v, max = OUTPUT_LIMITS.text) {
   if (typeof v !== 'string') return '';
-  return v.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, max);
+  return v.replace(CONTROL_CHARS_RE, '').trim().slice(0, max);
 }
 
-function items(arr, keys, maxItems = 8) {
+/**
+ * Sanitise a list of strings: drop empties, cap length and count.
+ * @param {unknown} arr
+ * @param {number} maxLen
+ * @param {number} maxCount
+ * @returns {string[]}
+ */
+function strList(arr, maxLen, maxCount) {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map((s) => str(s, maxLen))
+    .filter(Boolean)
+    .slice(0, maxCount);
+}
+
+/**
+ * Sanitise a list of card items, keeping only `keys` and requiring a title and impact.
+ * @param {unknown} arr
+ * @param {string[]} keys
+ * @param {number} [maxItems]
+ * @returns {Record<string, string>[]}
+ */
+function items(arr, keys, maxItems = OUTPUT_LIMITS.maxItems) {
   if (!Array.isArray(arr)) return [];
   return arr
     .filter((x) => x && typeof x === 'object')
     .slice(0, maxItems)
-    .map((x) => Object.fromEntries(keys.map((k) => [k, str(x[k], k === 'time' ? 20 : 400)])))
+    .map((x) => Object.fromEntries(keys.map((k) => [k, str(x[k], k === 'time' ? OUTPUT_LIMITS.time : OUTPUT_LIMITS.text)])))
     .filter((x) => x.title && x.impact);
 }
 
+/**
+ * Validate and sanitise a plan returned by the model.
+ * @param {unknown} raw
+ * @returns {object | null} the clean plan, or null when it is unusable
+ */
 function sanitizePlan(raw) {
-  const p = raw && typeof raw === 'object' ? raw : {};
+  const p = raw && typeof raw === 'object' ? /** @type {any} */ (raw) : {};
   const plan = {
-    summary: str(p.summary, 600),
+    summary: str(p.summary, OUTPUT_LIMITS.summary),
     routine: items(p.routine, ['time', 'title', 'detail', 'impact']),
     indoorHacks: items(p.indoorHacks, ['title', 'detail', 'impact']),
     sustainableAlternatives: items(p.sustainableAlternatives, ['title', 'detail', 'impact']),
-    healthAlerts: Array.isArray(p.healthAlerts) ? p.healthAlerts.map((s) => str(s, 300)).filter(Boolean).slice(0, 4) : [],
+    healthAlerts: strList(p.healthAlerts, OUTPUT_LIMITS.healthAlert, OUTPUT_LIMITS.maxHealthAlerts),
   };
   const valid = plan.summary && plan.routine.length > 0 && plan.indoorHacks.length > 0;
   return valid ? plan : null;
 }
 
+/**
+ * Validate and sanitise a chat reply returned by the model.
+ * @param {unknown} raw
+ * @returns {{answer: string, followUps: string[]} | null}
+ */
 function sanitizeChat(raw) {
-  const p = raw && typeof raw === 'object' ? raw : {};
-  const answer = str(p.answer, 1500);
+  const p = raw && typeof raw === 'object' ? /** @type {any} */ (raw) : {};
+  const answer = str(p.answer, OUTPUT_LIMITS.answer);
   if (!answer) return null;
-  const followUps = Array.isArray(p.followUps) ? p.followUps.map((s) => str(s, 120)).filter(Boolean).slice(0, 3) : [];
-  return { answer, followUps };
+  return { answer, followUps: strList(p.followUps, OUTPUT_LIMITS.followUp, OUTPUT_LIMITS.maxFollowUps) };
 }
 
 module.exports = {
   SYSTEM_INSTRUCTION,
   PLAN_SCHEMA,
   CHAT_SCHEMA,
+  OUTPUT_LIMITS,
   describeProfile,
   describeAir,
   buildPlanPrompt,

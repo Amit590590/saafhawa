@@ -27,7 +27,7 @@ function airFixture() {
 }
 
 const geoFixture = {
-  results: [{ name: 'Bhopal', admin1: 'Madhya Pradesh', country: 'India', country_code: 'IN', latitude: 23.25, longitude: 77.40 }],
+  results: [{ name: 'Bhopal', admin1: 'Madhya Pradesh', country: 'India', country_code: 'IN', latitude: 23.25, longitude: 77.4 }],
 };
 
 const planFixture = {
@@ -76,4 +76,18 @@ function makeFetch(opts = {}) {
 
 const silentLogger = { warn() {}, error() {}, log() {} };
 
-module.exports = { airFixture, geoFixture, planFixture, makeFetch, jsonResponse, geminiResponse, silentLogger };
+const path = require('node:path');
+const fs = require('node:fs');
+
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+
+/** Absolute paths of every frontend JS file under public/. */
+function frontendFiles(dir = PUBLIC_DIR) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
+    const full = path.join(dir, d.name);
+    if (d.isDirectory()) return frontendFiles(full);
+    return d.name.endsWith('.js') ? [full] : [];
+  });
+}
+
+module.exports = { PUBLIC_DIR, frontendFiles, airFixture, geoFixture, planFixture, makeFetch, jsonResponse, geminiResponse, silentLogger };

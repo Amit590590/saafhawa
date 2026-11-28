@@ -7,8 +7,18 @@ const { airFixture } = require('./helpers');
 
 test('usAqiBand maps EPA boundaries correctly', () => {
   const cases = [
-    [0, 'good'], [50, 'good'], [51, 'moderate'], [100, 'moderate'], [101, 'usg'], [150, 'usg'],
-    [151, 'unhealthy'], [200, 'unhealthy'], [201, 'very_unhealthy'], [300, 'very_unhealthy'], [301, 'hazardous'], [999, 'hazardous'],
+    [0, 'good'],
+    [50, 'good'],
+    [51, 'moderate'],
+    [100, 'moderate'],
+    [101, 'usg'],
+    [150, 'usg'],
+    [151, 'unhealthy'],
+    [200, 'unhealthy'],
+    [201, 'very_unhealthy'],
+    [300, 'very_unhealthy'],
+    [301, 'hazardous'],
+    [999, 'hazardous'],
   ];
   for (const [v, key] of cases) assert.equal(usAqiBand(v).key, key, `AQI ${v}`);
 });
@@ -26,7 +36,10 @@ test('usAqiBand rounds, flags risk and rejects bad input', () => {
 
 test('every band has a Hindi label and a contrast-safe text colour', () => {
   const lum = (hex) => {
-    const c = hex.match(/\w\w/g).map((x) => parseInt(x, 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    const c = hex
+      .match(/\w\w/g)
+      .map((x) => parseInt(x, 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
   };
   for (const b of US_BANDS) {

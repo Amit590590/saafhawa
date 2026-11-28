@@ -2,7 +2,15 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildPlanPrompt, buildChatPrompt, sanitizePlan, sanitizeChat, PLAN_SCHEMA, CHAT_SCHEMA, SYSTEM_INSTRUCTION } = require('../src/prompt');
+const {
+  buildPlanPrompt,
+  buildChatPrompt,
+  sanitizePlan,
+  sanitizeChat,
+  PLAN_SCHEMA,
+  CHAT_SCHEMA,
+  SYSTEM_INSTRUCTION,
+} = require('../src/prompt');
 const { validateProfile } = require('../src/validate');
 const { sliceForecast, bestWorstWindows, usAqiBand, naqiFromPm25 } = require('../src/aqi');
 const { airFixture, planFixture } = require('./helpers');

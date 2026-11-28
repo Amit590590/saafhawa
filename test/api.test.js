@@ -9,9 +9,12 @@ const { makeFetch, planFixture, geminiResponse, silentLogger } = require('./help
 async function start(opts = {}) {
   const fetchImpl = makeFetch(opts.mock);
   const app = createApp({ fetchImpl, apiKey: 'apiKey' in opts ? opts.apiKey : 'fake-test-key', logger: silentLogger, limits: opts.limits });
-  const server = await new Promise((resolve) => { const s = app.listen(0, () => resolve(s)); });
+  const server = await new Promise((resolve) => {
+    const s = app.listen(0, () => resolve(s));
+  });
   const base = `http://127.0.0.1:${server.address().port}`;
-  const post = (path, body) => fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const post = (path, body) =>
+    fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   return { base, post, fetchImpl, close: () => new Promise((r) => server.close(r)) };
 }
 
@@ -72,7 +75,14 @@ test('GET /api/air validates input and maps upstream errors', async (t) => {
 
 test('POST /api/plan returns the Gemini structured plan, grounded on live AQI', async (t) => {
   let sentPrompt;
-  const s = await start({ mock: { gemini: (b) => { sentPrompt = b; return geminiResponse(planFixture); } } });
+  const s = await start({
+    mock: {
+      gemini: (b) => {
+        sentPrompt = b;
+        return geminiResponse(planFixture);
+      },
+    },
+  });
   t.after(s.close);
   const res = await s.post('/api/plan', body);
   const json = await res.json();
@@ -121,7 +131,14 @@ test('POST /api/plan rejects invalid profiles and malformed JSON', async (t) => 
 
 test('POST /api/chat answers with grounded context and fences the question', async (t) => {
   let sent;
-  const s = await start({ mock: { gemini: (b) => { sent = b; return geminiResponse({ answer: 'Go out at 13:00.', followUps: ['What mask?'] }); } } });
+  const s = await start({
+    mock: {
+      gemini: (b) => {
+        sent = b;
+        return geminiResponse({ answer: 'Go out at 13:00.', followUps: ['What mask?'] });
+      },
+    },
+  });
   t.after(s.close);
   const res = await s.post('/api/chat', { ...body, message: 'When can kids play outside?', history: [{ role: 'user', text: 'hello' }] });
   const json = await res.json();
@@ -166,8 +183,13 @@ test('AI endpoints are rate limited per IP', async (t) => {
   assert.match((await res.json()).error, /limit/i);
 });
 
-test('frontend never uses innerHTML for dynamic content', async () => {
+test('frontend never uses innerHTML for dynamic content (all modules)', async () => {
+  const { frontendFiles } = require('./helpers');
   const fs = require('node:fs');
-  const src = fs.readFileSync(require('node:path').join(__dirname, '..', 'public', 'app.js'), 'utf8');
-  assert.ok(!/\.innerHTML\s*=|insertAdjacentHTML|outerHTML\s*=|document\.write/.test(src));
+  const files = frontendFiles();
+  assert.ok(files.length >= 5, 'expected the split frontend modules');
+  for (const file of files) {
+    const src = fs.readFileSync(file, 'utf8');
+    assert.ok(!/\.innerHTML\s*=|insertAdjacentHTML|outerHTML\s*=|document\.write/.test(src), file);
+  }
 });

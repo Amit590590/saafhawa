@@ -24,12 +24,19 @@ test('TTLCache expires entries and evicts the oldest', () => {
 test('TTLCache.getOrLoad coalesces concurrent loads and does not cache failures', async () => {
   const c = new TTLCache();
   let calls = 0;
-  const loader = async () => { calls += 1; return 'v'; };
+  const loader = async () => {
+    calls += 1;
+    return 'v';
+  };
   const [a, b] = await Promise.all([c.getOrLoad('k', loader), c.getOrLoad('k', loader)]);
   assert.equal(a, 'v');
   assert.equal(b, 'v');
   assert.equal(calls, 1);
-  await assert.rejects(c.getOrLoad('bad', async () => { throw new Error('x'); }));
+  await assert.rejects(
+    c.getOrLoad('bad', async () => {
+      throw new Error('x');
+    }),
+  );
   assert.equal(c.get('bad'), undefined);
 });
 
@@ -54,7 +61,14 @@ const report = {
 };
 
 test('fallback plan is personalised and every item explains impact', () => {
-  const p = validateProfile({ children: 2, respiratory: true, cookingFuel: 'biomass', commuteMode: 'car', commuteKm: 15, hasPurifier: true }).value;
+  const p = validateProfile({
+    children: 2,
+    respiratory: true,
+    cookingFuel: 'biomass',
+    commuteMode: 'car',
+    commuteKm: 15,
+    hasPurifier: true,
+  }).value;
   const plan = buildFallbackPlan(report, p, 'en');
   const all = [...plan.routine, ...plan.indoorHacks, ...plan.sustainableAlternatives];
   assert.ok(all.every((i) => i.title && i.impact));
@@ -74,7 +88,10 @@ test('fallback plan and chat are available in Hindi', () => {
 
 test('gemini client sends key in header, schema in config, and parses JSON', async () => {
   let seen;
-  const fetchImpl = async (url, init) => { seen = { url, init }; return geminiResponse({ answer: 'hi', followUps: [] }); };
+  const fetchImpl = async (url, init) => {
+    seen = { url, init };
+    return geminiResponse({ answer: 'hi', followUps: [] });
+  };
   const g = createGeminiClient({ apiKey: 'test-key', fetchImpl });
   const out = await g.generateJson({ system: 's', prompt: 'p', schema: { type: 'OBJECT' } });
   assert.deepEqual(out, { answer: 'hi', followUps: [] });
@@ -90,6 +107,9 @@ test('gemini client surfaces errors', async () => {
   await assert.rejects(createGeminiClient({ apiKey: '' }).generateJson({}), /not configured/);
   const bad = createGeminiClient({ apiKey: 'k', fetchImpl: async () => jsonResponse({}, 500) });
   await assert.rejects(bad.generateJson({ system: 's', prompt: 'p' }), /500/);
-  const junk = createGeminiClient({ apiKey: 'k', fetchImpl: async () => jsonResponse({ candidates: [{ content: { parts: [{ text: 'not json' }] } }] }) });
+  const junk = createGeminiClient({
+    apiKey: 'k',
+    fetchImpl: async () => jsonResponse({ candidates: [{ content: { parts: [{ text: 'not json' }] } }] }),
+  });
   await assert.rejects(junk.generateJson({ system: 's', prompt: 'p' }), /invalid JSON/);
 });

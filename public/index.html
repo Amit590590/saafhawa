@@ -1,167 +1,243 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SaafHawa – Clean-air assistant for smoggy cities</title>
-  <meta name="description" content="SaafHawa uses live AQI forecasts and Google Gemini to give families a personalised low-emission routine, indoor air hacks and sustainable alternatives, with the impact of each choice explained.">
-  <meta name="theme-color" content="#0b5d4b">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230b5d4b'/%3E%3Cpath d='M7 13h14a3 3 0 1 0-3-3M7 18h18a3 3 0 1 1-3 3' stroke='%23fff' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/styles.css?v=3">
-  <script type="module" src="/app.js?v=3"></script>
-</head>
-<body>
-  <a class="skip-link" href="#main" data-i18n="skip">Skip to main content</a>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SaafHawa – Clean-air assistant for smoggy cities</title>
+    <meta
+      name="description"
+      content="SaafHawa uses live AQI forecasts and Google Gemini to give families a personalised low-emission routine, indoor air hacks and sustainable alternatives, with the impact of each choice explained."
+    />
+    <meta name="theme-color" content="#0b5d4b" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230b5d4b'/%3E%3Cpath d='M7 13h14a3 3 0 1 0-3-3M7 18h18a3 3 0 1 1-3 3' stroke='%23fff' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/styles.css?v=4" />
+    <script type="module" src="/app.js?v=4"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main" data-i18n="skip">Skip to main content</a>
 
-  <header class="site-header">
-    <div class="wrap header-row">
-      <div class="brand">
-        <span class="logo" aria-hidden="true">≋</span>
-        <div>
-          <p class="brand-name">SaafHawa <span lang="hi">साफ़ हवा</span></p>
-          <p class="tagline" data-i18n="tagline">Breathe smarter through winter smog</p>
+    <header class="site-header">
+      <div class="wrap header-row">
+        <div class="brand">
+          <span class="logo" aria-hidden="true">≋</span>
+          <div>
+            <p class="brand-name">SaafHawa <span lang="hi">साफ़ हवा</span></p>
+            <p class="tagline" data-i18n="tagline">Breathe smarter through winter smog</p>
+          </div>
         </div>
+        <button type="button" id="langToggle" class="btn btn-ghost" aria-pressed="false" aria-label="हिन्दी में देखें / Switch to Hindi">
+          <span lang="hi">हिन्दी</span>
+        </button>
       </div>
-      <button type="button" id="langToggle" class="btn btn-ghost" aria-pressed="false" aria-label="हिन्दी में देखें / Switch to Hindi">
-        <span lang="hi">हिन्दी</span>
-      </button>
-    </div>
-  </header>
+    </header>
 
-  <main id="main" class="wrap" tabindex="-1">
-    <section class="card intro" aria-labelledby="formTitle">
-      <h1 id="formTitle" data-i18n="formTitle">Your city &amp; household</h1>
-      <p class="muted" data-i18n="formIntro">Tell us where you are and how you live. We fetch the live air forecast and Gemini builds a plan for your family.</p>
+    <main id="main" class="wrap" tabindex="-1">
+      <section class="card intro" aria-labelledby="formTitle">
+        <h1 id="formTitle" data-i18n="formTitle">Your city &amp; household</h1>
+        <p class="muted" data-i18n="formIntro">
+          Tell us where you are and how you live. We fetch the live air forecast and Gemini builds a plan for your family.
+        </p>
 
-      <form id="profileForm" novalidate>
-        <div class="field city-row">
-          <div class="grow">
-            <label for="city" data-i18n="cityLabel">City</label>
-            <input id="city" name="city" type="text" autocomplete="address-level2" maxlength="80" required
-                   placeholder="e.g. Delhi, Bhopal, Indore" aria-describedby="cityHelp cityError">
-            <p id="cityHelp" class="hint" data-i18n="cityHelp">Any city worldwide. Or use your current location.</p>
-            <p id="cityError" class="error" role="alert"></p>
-          </div>
-          <button type="button" id="geoBtn" class="btn btn-secondary" data-i18n="useLocation">Use my location</button>
-        </div>
-
-        <fieldset>
-          <legend data-i18n="householdLegend">Household</legend>
-          <div class="grid-3">
-            <div class="field"><label for="adults" data-i18n="adults">Adults</label><input id="adults" name="adults" type="number" min="0" max="20" value="2" inputmode="numeric"></div>
-            <div class="field"><label for="children" data-i18n="children">Children</label><input id="children" name="children" type="number" min="0" max="20" value="1" inputmode="numeric"></div>
-            <div class="field"><label for="elderly" data-i18n="elderly">Elderly (60+)</label><input id="elderly" name="elderly" type="number" min="0" max="20" value="0" inputmode="numeric"></div>
-          </div>
-          <div class="checks">
-            <label class="check"><input type="checkbox" name="respiratory"> <span data-i18n="respiratory">Someone has asthma / COPD / allergies</span></label>
-            <label class="check"><input type="checkbox" name="pregnant"> <span data-i18n="pregnant">Someone is pregnant</span></label>
-            <label class="check"><input type="checkbox" name="smokerAtHome"> <span data-i18n="smoker">Someone smokes at home</span></label>
-          </div>
-        </fieldset>
-
-        <fieldset>
-          <legend data-i18n="lifestyleLegend">Lifestyle</legend>
-          <div class="grid-3">
-            <div class="field">
-              <label for="commuteMode" data-i18n="commuteMode">Daily commute</label>
-              <select id="commuteMode" name="commuteMode">
-                <option value="bus" data-i18n="m_bus">Bus</option>
-                <option value="metro" data-i18n="m_metro">Metro / train</option>
-                <option value="two_wheeler" data-i18n="m_two_wheeler">Two-wheeler</option>
-                <option value="car" data-i18n="m_car">Car</option>
-                <option value="auto" data-i18n="m_auto">Auto-rickshaw</option>
-                <option value="cycle" data-i18n="m_cycle">Cycle</option>
-                <option value="walk" data-i18n="m_walk">Walk</option>
-                <option value="wfh" data-i18n="m_wfh">No commute</option>
-              </select>
+        <form id="profileForm" novalidate>
+          <div class="field city-row">
+            <div class="grow">
+              <label for="city" data-i18n="cityLabel">City</label>
+              <input
+                id="city"
+                name="city"
+                type="text"
+                autocomplete="address-level2"
+                maxlength="80"
+                required
+                placeholder="e.g. Delhi, Bhopal, Indore"
+                aria-describedby="cityHelp cityError"
+              />
+              <p id="cityHelp" class="hint" data-i18n="cityHelp">Any city worldwide. Or use your current location.</p>
+              <p id="cityError" class="error" role="alert"></p>
             </div>
-            <div class="field"><label for="commuteKm" data-i18n="commuteKm">Distance one way (km)</label><input id="commuteKm" name="commuteKm" type="number" min="0" max="200" value="10" inputmode="numeric"></div>
-            <div class="field">
-              <label for="cookingFuel" data-i18n="cookingFuel">Cooking fuel</label>
-              <select id="cookingFuel" name="cookingFuel">
-                <option value="lpg" data-i18n="f_lpg">LPG cylinder</option>
-                <option value="png" data-i18n="f_png">Piped gas (PNG)</option>
-                <option value="induction" data-i18n="f_induction">Induction / electric</option>
-                <option value="biomass" data-i18n="f_biomass">Wood / cow-dung / biomass</option>
-                <option value="kerosene" data-i18n="f_kerosene">Kerosene</option>
-                <option value="coal" data-i18n="f_coal">Coal</option>
-              </select>
+            <button type="button" id="geoBtn" class="btn btn-secondary" data-i18n="useLocation">Use my location</button>
+          </div>
+
+          <fieldset>
+            <legend data-i18n="householdLegend">Household</legend>
+            <div class="grid-3">
+              <div class="field">
+                <label for="adults" data-i18n="adults">Adults</label
+                ><input id="adults" name="adults" type="number" min="0" max="20" value="2" inputmode="numeric" />
+              </div>
+              <div class="field">
+                <label for="children" data-i18n="children">Children</label
+                ><input id="children" name="children" type="number" min="0" max="20" value="1" inputmode="numeric" />
+              </div>
+              <div class="field">
+                <label for="elderly" data-i18n="elderly">Elderly (60+)</label
+                ><input id="elderly" name="elderly" type="number" min="0" max="20" value="0" inputmode="numeric" />
+              </div>
             </div>
+            <div class="checks">
+              <label class="check"
+                ><input type="checkbox" name="respiratory" />
+                <span data-i18n="respiratory">Someone has asthma / COPD / allergies</span></label
+              >
+              <label class="check"><input type="checkbox" name="pregnant" /> <span data-i18n="pregnant">Someone is pregnant</span></label>
+              <label class="check"
+                ><input type="checkbox" name="smokerAtHome" /> <span data-i18n="smoker">Someone smokes at home</span></label
+              >
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend data-i18n="lifestyleLegend">Lifestyle</legend>
+            <div class="grid-3">
+              <div class="field">
+                <label for="commuteMode" data-i18n="commuteMode">Daily commute</label>
+                <select id="commuteMode" name="commuteMode">
+                  <option value="bus" data-i18n="m_bus">Bus</option>
+                  <option value="metro" data-i18n="m_metro">Metro / train</option>
+                  <option value="two_wheeler" data-i18n="m_two_wheeler">Two-wheeler</option>
+                  <option value="car" data-i18n="m_car">Car</option>
+                  <option value="auto" data-i18n="m_auto">Auto-rickshaw</option>
+                  <option value="cycle" data-i18n="m_cycle">Cycle</option>
+                  <option value="walk" data-i18n="m_walk">Walk</option>
+                  <option value="wfh" data-i18n="m_wfh">No commute</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="commuteKm" data-i18n="commuteKm">Distance one way (km)</label
+                ><input id="commuteKm" name="commuteKm" type="number" min="0" max="200" value="10" inputmode="numeric" />
+              </div>
+              <div class="field">
+                <label for="cookingFuel" data-i18n="cookingFuel">Cooking fuel</label>
+                <select id="cookingFuel" name="cookingFuel">
+                  <option value="lpg" data-i18n="f_lpg">LPG cylinder</option>
+                  <option value="png" data-i18n="f_png">Piped gas (PNG)</option>
+                  <option value="induction" data-i18n="f_induction">Induction / electric</option>
+                  <option value="biomass" data-i18n="f_biomass">Wood / cow-dung / biomass</option>
+                  <option value="kerosene" data-i18n="f_kerosene">Kerosene</option>
+                  <option value="coal" data-i18n="f_coal">Coal</option>
+                </select>
+              </div>
+            </div>
+            <div class="checks">
+              <label class="check"><input type="checkbox" name="workFromHome" /> <span data-i18n="wfh">Work / study from home</span></label>
+              <label class="check"
+                ><input type="checkbox" name="outdoorExercise" /> <span data-i18n="exercise">Exercise outdoors</span></label
+              >
+              <label class="check"
+                ><input type="checkbox" name="hasPurifier" /> <span data-i18n="purifier">Have an air purifier</span></label
+              >
+              <label class="check"><input type="checkbox" name="hasPlants" /> <span data-i18n="plants">Have indoor plants</span></label>
+            </div>
+          </fieldset>
+
+          <button type="submit" id="submitBtn" class="btn btn-primary" data-i18n="submit">Check air &amp; get my plan</button>
+        </form>
+      </section>
+
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+
+      <section id="airSection" class="card" aria-labelledby="airTitle" hidden>
+        <h2 id="airTitle" tabindex="-1"><span data-i18n="airTitle">Air right now in</span> <span id="placeName"></span></h2>
+        <div class="aqi-row">
+          <div id="aqiBadge" class="aqi-badge">
+            <span class="aqi-value" id="aqiValue">–</span>
+            <span class="aqi-unit">US AQI</span>
           </div>
-          <div class="checks">
-            <label class="check"><input type="checkbox" name="workFromHome"> <span data-i18n="wfh">Work / study from home</span></label>
-            <label class="check"><input type="checkbox" name="outdoorExercise"> <span data-i18n="exercise">Exercise outdoors</span></label>
-            <label class="check"><input type="checkbox" name="hasPurifier"> <span data-i18n="purifier">Have an air purifier</span></label>
-            <label class="check"><input type="checkbox" name="hasPlants"> <span data-i18n="plants">Have indoor plants</span></label>
+          <div class="aqi-meta">
+            <p class="aqi-band" id="aqiBand"></p>
+            <p id="naqi" class="muted"></p>
+            <dl class="pollutants">
+              <div>
+                <dt>PM2.5</dt>
+                <dd id="pm25"></dd>
+              </div>
+              <div>
+                <dt>PM10</dt>
+                <dd id="pm10"></dd>
+              </div>
+              <div>
+                <dt>NO₂</dt>
+                <dd id="no2"></dd>
+              </div>
+            </dl>
+            <p class="muted small">
+              <span data-i18n="updated">Updated</span> <span id="updatedAt"></span> ·
+              <span data-i18n="sourceLabel">Source: Open-Meteo (CAMS)</span>
+            </p>
           </div>
-        </fieldset>
-
-        <button type="submit" id="submitBtn" class="btn btn-primary" data-i18n="submit">Check air &amp; get my plan</button>
-      </form>
-    </section>
-
-    <div id="status" class="status" role="status" aria-live="polite"></div>
-
-    <section id="airSection" class="card" aria-labelledby="airTitle" hidden>
-      <h2 id="airTitle" tabindex="-1"><span data-i18n="airTitle">Air right now in</span> <span id="placeName"></span></h2>
-      <div class="aqi-row">
-        <div id="aqiBadge" class="aqi-badge">
-          <span class="aqi-value" id="aqiValue">–</span>
-          <span class="aqi-unit">US AQI</span>
         </div>
-        <div class="aqi-meta">
-          <p class="aqi-band" id="aqiBand"></p>
-          <p id="naqi" class="muted"></p>
-          <dl class="pollutants">
-            <div><dt>PM2.5</dt><dd id="pm25"></dd></div>
-            <div><dt>PM10</dt><dd id="pm10"></dd></div>
-            <div><dt>NO₂</dt><dd id="no2"></dd></div>
-          </dl>
-          <p class="muted small"><span data-i18n="updated">Updated</span> <span id="updatedAt"></span> · <span data-i18n="sourceLabel">Source: Open-Meteo (CAMS)</span></p>
+
+        <div class="windows">
+          <div class="window good-window">
+            <h3 data-i18n="bestTitle">Best time to go out</h3>
+            <p id="bestWindow"></p>
+          </div>
+          <div class="window bad-window">
+            <h3 data-i18n="worstTitle">Avoid going out</h3>
+            <p id="worstWindow"></p>
+          </div>
         </div>
-      </div>
 
-      <div class="windows">
-        <div class="window good-window"><h3 data-i18n="bestTitle">Best time to go out</h3><p id="bestWindow"></p></div>
-        <div class="window bad-window"><h3 data-i18n="worstTitle">Avoid going out</h3><p id="worstWindow"></p></div>
-      </div>
+        <h3 data-i18n="forecastTitle">Next 24 hours</h3>
+        <div id="chart" class="chart" role="img" aria-describedby="chartSummary"></div>
+        <p id="chartSummary" class="sr-only"></p>
+        <details>
+          <summary data-i18n="tableToggle">Show hourly table</summary>
+          <div class="table-wrap">
+            <table>
+              <caption class="sr-only" data-i18n="tableCaption">
+                Hourly US AQI forecast
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col" data-i18n="thTime">Time</th>
+                  <th scope="col">US AQI</th>
+                  <th scope="col" data-i18n="thBand">Level</th>
+                  <th scope="col">PM2.5</th>
+                </tr>
+              </thead>
+              <tbody id="forecastBody"></tbody>
+            </table>
+          </div>
+        </details>
+      </section>
 
-      <h3 data-i18n="forecastTitle">Next 24 hours</h3>
-      <div id="chart" class="chart" role="img" aria-describedby="chartSummary"></div>
-      <p id="chartSummary" class="sr-only"></p>
-      <details>
-        <summary data-i18n="tableToggle">Show hourly table</summary>
-        <div class="table-wrap">
-          <table>
-            <caption class="sr-only" data-i18n="tableCaption">Hourly US AQI forecast</caption>
-            <thead><tr><th scope="col" data-i18n="thTime">Time</th><th scope="col">US AQI</th><th scope="col" data-i18n="thBand">Level</th><th scope="col">PM2.5</th></tr></thead>
-            <tbody id="forecastBody"></tbody>
-          </table>
-        </div>
-      </details>
-    </section>
+      <section id="planSection" class="card" aria-labelledby="planTitle" aria-busy="false" hidden>
+        <h2 id="planTitle" tabindex="-1" data-i18n="planTitle">Your clean-air plan</h2>
+        <p id="planSource" class="pill"></p>
+        <div id="planBody" aria-live="polite"></div>
+        <p class="muted small" data-i18n="disclaimer">
+          Impact figures are approximate estimates for guidance, not medical advice. See a doctor for breathing difficulty.
+        </p>
+      </section>
 
-    <section id="planSection" class="card" aria-labelledby="planTitle" aria-busy="false" hidden>
-      <h2 id="planTitle" tabindex="-1" data-i18n="planTitle">Your clean-air plan</h2>
-      <p id="planSource" class="pill"></p>
-      <div id="planBody" aria-live="polite"></div>
-      <p class="muted small" data-i18n="disclaimer">Impact figures are approximate estimates for guidance, not medical advice. See a doctor for breathing difficulty.</p>
-    </section>
+      <section id="chatSection" class="card" aria-labelledby="chatTitle" hidden>
+        <h2 id="chatTitle" data-i18n="chatTitle">Ask a follow-up</h2>
+        <div id="chatLog" class="chat-log" role="log" aria-live="polite" aria-relevant="additions"></div>
+        <div id="suggestions" class="suggestions"></div>
+        <form id="chatForm" class="chat-form">
+          <label for="chatInput" class="sr-only" data-i18n="chatLabel">Your question</label>
+          <input
+            id="chatInput"
+            type="text"
+            maxlength="500"
+            autocomplete="off"
+            data-i18n-placeholder="chatPlaceholder"
+            placeholder="e.g. Is it safe for my kids to play outside at 5 pm?"
+          />
+          <button type="submit" class="btn btn-primary" data-i18n="send">Ask</button>
+        </form>
+      </section>
+    </main>
 
-    <section id="chatSection" class="card" aria-labelledby="chatTitle" hidden>
-      <h2 id="chatTitle" data-i18n="chatTitle">Ask a follow-up</h2>
-      <div id="chatLog" class="chat-log" role="log" aria-live="polite" aria-relevant="additions"></div>
-      <div id="suggestions" class="suggestions"></div>
-      <form id="chatForm" class="chat-form">
-        <label for="chatInput" class="sr-only" data-i18n="chatLabel">Your question</label>
-        <input id="chatInput" type="text" maxlength="500" autocomplete="off" data-i18n-placeholder="chatPlaceholder" placeholder="e.g. Is it safe for my kids to play outside at 5 pm?">
-        <button type="submit" class="btn btn-primary" data-i18n="send">Ask</button>
-      </form>
-    </section>
-  </main>
-
-  <footer class="site-footer wrap">
-    <p><span data-i18n="footer">Built with Google Gemini + Open-Meteo for PromptWars Virtual.</span> <span data-i18n="privacy">Your profile stays in your browser.</span></p>
-  </footer>
-</body>
+    <footer class="site-footer wrap">
+      <p>
+        <span data-i18n="footer">Built with Google Gemini + Open-Meteo for PromptWars Virtual.</span>
+        <span data-i18n="privacy">Your profile stays in your browser.</span>
+      </p>
+    </footer>
+  </body>
 </html>
